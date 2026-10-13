@@ -53,18 +53,15 @@
  *     });
  *
  *     if (newRows.length > 0) {
- *       var insertAt = 2;
- *       var totalInsert = 1 + newRows.length + 1;
- *       tab.insertRowsBefore(insertAt, totalInsert);
- *       tab.getRange(insertAt + 1, 1, newRows.length, data.headers.length)
- *          .setValues(newRows);
- *       tab.getRange(insertAt + 1, 1, 1, data.headers.length)
- *          .setBorder(true, false, false, false, false, false,
- *            '#1F3369', SpreadsheetApp.BorderStyle.SOLID_THICK);
- *       tab.getRange(insertAt + newRows.length, 1, 1, data.headers.length)
- *          .setBorder(false, false, true, false, false, false,
- *            '#1F3369', SpreadsheetApp.BorderStyle.SOLID_THICK);
+ *       tab.insertRowsBefore(2, newRows.length);
+ *       var dataRange = tab.getRange(2, 1, newRows.length, data.headers.length);
+ *       dataRange.setValues(newRows);
+ *       dataRange.setBorder(false, false, false, false, false, false);
  *     }
+ *
+ *     // Clear borders on entire sheet (removes any borders from previous syncs)
+ *     var fullRange = tab.getDataRange();
+ *     fullRange.setBorder(false, false, false, false, false, false);
  *
  *     return ContentService.createTextOutput(
  *       JSON.stringify({ ok: true, inserted: newRows.length, skipped: data.rows.length - newRows.length })
@@ -146,12 +143,37 @@ export function buildSheetRows(
   username: string,
   rangeFromIso?: string
 ): SheetRow[] {
-  const sorted = [...entries].sort(
-    (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime()
-  )
   const rangeFromMs = rangeFromIso ? new Date(rangeFromIso).getTime() : null
 
-  return sorted.map(entry => {
+  // ── Aggregate: group by (issueId, date) and sum seconds ──────────────────
+  // Key: "<issueId>||<YYYY-MM-DD>"
+  const grouped = new Map<string, {
+    totalSeconds: number
+    entry: TrackedTimeEntry   // representative entry for metadata
+    dateStr: string           // YYYY-MM-DD date key
+  }>()
+
+  for (const entry of entries) {
+    const dateKey = entry.created.split('T')[0]
+    const mapKey  = `${entry.issue_id}||${dateKey}`
+    const cur = grouped.get(mapKey)
+    if (cur) {
+      cur.totalSeconds += entry.time ?? 0
+    } else {
+      grouped.set(mapKey, {
+        totalSeconds: entry.time ?? 0,
+        entry,
+        dateStr: dateKey,
+      })
+    }
+  }
+
+  // ── Sort aggregated rows by date ascending ────────────────────────────────
+  const aggregated = [...grouped.values()].sort(
+    (a, b) => a.dateStr.localeCompare(b.dateStr)
+  )
+
+  return aggregated.map(({ totalSeconds, entry, dateStr }) => {
     const issue      = issues.find(i => i.id === entry.issue_id)
     const issueNum   = entry.issue?.number ?? issue?.number ?? entry.issue_id
     const issueTitle = entry.issue?.title  ?? issue?.title  ?? 'Unknown'
@@ -186,14 +208,14 @@ export function buildSheetRows(
     return {
       taskId:        String(issueNum),
       description:   issueTitle,
-      date:          formatDDMMYY(entry.created),
+      date:          formatDDMMYY(dateStr + 'T00:00:00'),
       programmer,
       status:        statusLabel,
       estimatedHrs,
-      actualHrs:     hoursToHMStr(secondsToHours(entry.time)),
+      actualHrs:     hoursToHMStr(secondsToHours(totalSeconds)),
       estStartDate:  estStart,
       estEndDate:    estEnd,
-      actStartDate:  formatDDMMYY(entry.created),
+      actStartDate:  formatDDMMYY(dateStr + 'T00:00:00'),
       actEndDate:    actEnd,
       carryForwarded,
     }

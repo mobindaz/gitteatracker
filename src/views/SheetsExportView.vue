@@ -250,34 +250,15 @@ const appsScript = `function doPost(e) {
     });
 
     if (newRows.length > 0) {
-      // Insert a blank spacer ABOVE the new batch (row 2 = just below header)
-      // and another blank spacer BELOW the batch, so each sync group is
-      // visually separated from the content above and below.
-      var insertAt = 2; // just below header
-      var totalInsert = 1 + newRows.length + 1; // spacer + data + spacer
-      tab.insertRowsBefore(insertAt, totalInsert);
-
-      // Top spacer row (row 2) — left blank intentionally
-      // Data rows start at row 3
-      tab.getRange(insertAt + 1, 1, newRows.length, data.headers.length)
-         .setValues(newRows);
-
-      // Thick top border on the FIRST data row (row 3) — marks batch start
-      tab.getRange(insertAt + 1, 1, 1, data.headers.length)
-         .setBorder(
-           true, false, false, false, false, false,
-           '#1F3369', SpreadsheetApp.BorderStyle.SOLID_THICK
-         );
-
-      // Thick bottom border on the LAST data row — marks batch end
-      tab.getRange(insertAt + newRows.length, 1, 1, data.headers.length)
-         .setBorder(
-           false, false, true, false, false, false,
-           '#1F3369', SpreadsheetApp.BorderStyle.SOLID_THICK
-         );
-
-      // Bottom spacer row (insertAt + newRows.length + 1) — left blank
+      tab.insertRowsBefore(2, newRows.length);
+      var dataRange = tab.getRange(2, 1, newRows.length, data.headers.length);
+      dataRange.setValues(newRows);
+      dataRange.setBorder(false, false, false, false, false, false);
     }
+
+    // Also clear borders on the entire sheet data range (removes any old borders)
+    var fullRange = tab.getDataRange();
+    fullRange.setBorder(false, false, false, false, false, false);
 
     var dataRowCount = existing.length > 0 ? existing.length - 1 : 0;
     return ContentService.createTextOutput(
